@@ -228,6 +228,30 @@
     line-height: 1.5;
   }
 
+  /* --- 自分の順番を作る画面(第7.7版) --- */
+  .order-modal {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center;
+  }
+  .order-modal.open { display: flex; }
+  .order-box {
+    background: #1a1c22; border-radius: 14px; padding: 18px;
+    width: min(340px, 92vw);
+  }
+  .order-box h2 { font-size: 16px; margin: 0 0 6px; }
+  .order-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0;
+  }
+  .order-grid button {
+    height: 72px; font-size: 18px; position: relative;
+  }
+  .order-grid button .num {
+    position: absolute; top: 4px; right: 8px; font-size: 22px; font-weight: 700; color: #facc15;
+  }
+  .order-grid button.picked { background: #2a3550; border-color: #2f6fed; }
+  .order-seq { font-size: 14px; color: #ccc; min-height: 20px; margin-bottom: 10px; text-align: center; }
+
   pre#payloadPreview {
     background: #1a1c22;
     border-radius: 10px;
@@ -246,7 +270,7 @@
 <div class="bat-banner" id="batBanner"></div>
 
 <h1>TPU-MINI</h1>
-<div class="sub">送信機とBluetoothで接続し、確定値を4輪分まとめてGASへ送るスマホアプリ(第7.6版: 表示単位のままGASへ送信 / タイヤのセット番号 / 送信機のG1長押しでも送信 / iPhone・iPad(Bluefy)対応 / 弱い充電器の表示 / 送信機との紐付け / 表示単位kPa・bar・psi / 車番を覚える)</div>
+<div class="sub">送信機とBluetoothで接続し、確定値を4輪分まとめてGASへ送るスマホアプリ(第7.7版: 校正を2点方式に / 測定順の追加と自分の順番 / AUTOの低い値をはじく・外した時の最大値で上書き / 表示単位のままGASへ送信 / タイヤのセット番号 / 送信機のG1長押しでも送信 / iPhone・iPad(Bluefy)対応 / 弱い充電器の表示 / 送信機との紐付け / 表示単位kPa・bar・psi / 車番を覚える)</div>
 
 <div class="row">
   <button id="connectBtn" class="primary">接続する</button>
@@ -288,7 +312,29 @@
     <option value="2">RL始点 (RL-FL-FR-RR)</option>
     <option value="3">RL始点・逆回り (RL-RR-FR-FL)</option>
     <option value="4">RR始点 (RR-RL-FL-FR)</option>
+    <option value="5">FR始点・横回り (FR-FL-RL-RR)</option>
+    <option value="6" id="customOrderOpt">自分の順番 (未作成)</option>
   </select>
+  <button id="editOrderBtn" style="display:none;font-size:13px;padding:6px 10px;">作り直す</button>
+</div>
+
+<div class="order-modal" id="orderModal">
+  <div class="order-box">
+    <h2>自分の順番を作る</h2>
+    <div class="cal-hint">測る順に4つの輪をタップしてください(車を上から見た並び)。</div>
+    <div class="order-grid" id="orderGrid">
+      <button data-w="FL">FL<span class="num"></span></button>
+      <button data-w="FR">FR<span class="num"></span></button>
+      <button data-w="RL">RL<span class="num"></span></button>
+      <button data-w="RR">RR<span class="num"></span></button>
+    </div>
+    <div class="order-seq" id="orderSeq"></div>
+    <div class="footer-actions">
+      <button id="orderRedoBtn">やり直す</button>
+      <button id="orderCancelBtn">やめる</button>
+      <button id="orderSaveBtn" class="primary" disabled>保存</button>
+    </div>
+  </div>
 </div>
 
 <div class="wheels" id="wheelGrid"></div>
@@ -303,7 +349,7 @@
 <details class="cal" id="calPanel">
   <summary>校正</summary>
   <div class="cal-body">
-    <div class="cal-current" id="calCurrent">ゼロ点 -- kPa / 倍率 --</div>
+    <div class="cal-current" id="calCurrent">ゼロ点 -- kPa / 100の点 -- / 200の点 --</div>
     <div class="cal-result" id="calResult">未接続</div>
 
     <div class="cal-step">
@@ -312,17 +358,27 @@
     </div>
 
     <div class="cal-step">
-      <div class="cal-hint">2. 倍率: 本体をMANUALにしてからタイヤにつなぎ、同じタイヤを基準器(Core2版など)で測った値を入れて押してください。
-        終わったらチャックを外してください。</div>
+      <div class="cal-hint">2. 100の点: 本体をMANUALにしてからタイヤにつなぎ、基準器(Core2版など)で<span class="calApprox" data-kpa="100">約100kPa</span>に合わせます。
+        基準器に出た値をそのまま入れて押してください。終わったらチャックを外してください。</div>
       <div class="row" style="margin-bottom:0;">
-        <input type="number" id="calMaster" placeholder="基準値" min="50" max="551" step="0.1" style="width:110px;">
-        <span style="font-size:13px;color:#aaa;" id="calMasterUnit">kPa</span>
-        <button id="calGainBtn" disabled>倍率を合わせる</button>
+        <input type="number" id="calMaster1" placeholder="基準値" min="50" max="551" step="0.1" style="width:110px;">
+        <span style="font-size:13px;color:#aaa;" class="calMasterUnit">kPa</span>
+        <button id="calP1Btn" disabled>100の点を合わせる</button>
       </div>
     </div>
 
     <div class="cal-step">
-      <div class="cal-hint">校正値を初期値(ゼロ点0・倍率1)に戻します。</div>
+      <div class="cal-hint">3. 200の点: 空気を入れて<span class="calApprox" data-kpa="200">約200kPa</span>にし、同じように基準器の値を入れて押してください。
+        (先に100の点を合わせてから行います)</div>
+      <div class="row" style="margin-bottom:0;">
+        <input type="number" id="calMaster2" placeholder="基準値" min="50" max="551" step="0.1" style="width:110px;">
+        <span style="font-size:13px;color:#aaa;" class="calMasterUnit">kPa</span>
+        <button id="calP2Btn" disabled>200の点を合わせる</button>
+      </div>
+    </div>
+
+    <div class="cal-step">
+      <div class="cal-hint">校正値を初期値(ゼロ点0・100/200の点なし)に戻します。</div>
       <button id="calResetBtn" disabled>初期値に戻す</button>
     </div>
   </div>
@@ -330,7 +386,15 @@
 
 <script>
 // =================================================================
-// TPU-MINI スマホ側Webアプリ(第7.6版: 表示単位のままGASへ送信)
+// TPU-MINI スマホ側Webアプリ(第7.7版: 2点校正 / 測定順 / MAXホールドの上書き)
+// ・第7.7版: (1) AUTOの時、20kPa以下の確定値は受け付けない(MANUALは0でも受け付ける=テスト送信)。
+//   (2) 送信機(第6.6版以降)が、チャックを外した時に "U:<値>" を送ってきたら、直前に確定した輪の値を上書きする。
+//       (AUTOのMAXホールド。確定値より1kPa以上高い値が出ていた時だけ送信機が送ってくる)
+//   (3) 校正を「ゼロ点 → 100の点 → 200の点」の3段にした。送信機へ "CAL1:<基準値kPa>" / "CAL2:<基準値kPa>" を送る。
+//       校正の状態は CAL_STATUS の ";P1=<値>;P2=<値>" で受け取る。第6.5版以前の送信機は CAL1/CAL2 を知らないので、
+//       「送信機が古い」と知らせる(従来の1点の倍率合わせ GAIN は、この画面からは使わない)。
+//   (4) 測定順に「FR始点・横回り (FR-FL-RL-RR)」を追加。一覧の最後の「自分の順番」で、輪を測る順にタップして
+//       自分の順番を1つ作れる(端末に覚える。作り直すと上書き)。
 // ・第7.6版: GASへ送る pressure を、送信する時に選んでいる表示単位(kPa / bar / psi)の値にした。
 //   換算した値は丸めない(計算で出る 2.2040000000000002 のような端数のくずだけ有効12桁で取り除く)。
 //   各輪に unit("kPa" / "bar" / "psi")を追加。GAS(V1.38以降)はメモ欄に「#車番 / セット / 単位」と書き、
@@ -419,7 +483,7 @@ const UNITS = {
   bar: { label: "bar", from: v => v / 100,         to: v => v * 100,         digits: 2, step: "0.01" },
   psi: { label: "psi", from: v => v / KPA_PER_PSI, to: v => v * KPA_PER_PSI, digits: 1, step: "0.1"  },
 };
-const SETTINGS_KEY = "tpuMiniAppSettings";   // {unit, carNo, wheelOrder, tireSet}
+const SETTINGS_KEY = "tpuMiniAppSettings";   // {unit, carNo, wheelOrder, tireSet, customOrder}
 let displayUnit = "kPa";
 let lastLiveKpa = null;   // 単位を切り替えた時にすぐ描き直すため
 
@@ -441,6 +505,7 @@ function saveSettings() {
       carNo: el("carNo").value,
       wheelOrder: el("wheelOrder").value,
       tireSet: el("tireSet").value,   // ★第7.5版
+      customOrder: customOrder,       // ★第7.7版: 自分の順番(無ければ null)
     }));
   } catch (_) {}
 }
@@ -460,7 +525,14 @@ const WHEEL_ORDER_TABLE = [
   ["RL", "FL", "FR", "RR"],
   ["RL", "RR", "FR", "FL"],
   ["RR", "RL", "FL", "FR"],
+  ["FR", "FL", "RL", "RR"],   // ★第7.7版
 ];
+const CUSTOM_ORDER_IDX = 6;   // ★第7.7版: 「自分の順番」の選択肢の番号
+let customOrder = null;       // 例: ["FR","FL","RR","RL"]
+
+function isValidOrder(arr) {
+  return Array.isArray(arr) && arr.length === 4 && WHEEL_NAMES.every(w => arr.includes(w));
+}
 
 let bleDevice = null;
 let bleServer = null;
@@ -475,7 +547,8 @@ const textDecoder = new TextDecoder("utf-8");
 
 function currentWheelOrder() {
   const modeIdx = parseInt(el("wheelOrder").value, 10);
-  return WHEEL_ORDER_TABLE[modeIdx];
+  if (modeIdx === CUSTOM_ORDER_IDX) return isValidOrder(customOrder) ? customOrder : WHEEL_ORDER_TABLE[0];
+  return WHEEL_ORDER_TABLE[modeIdx] || WHEEL_ORDER_TABLE[0];
 }
 
 function resetSession() {
@@ -504,6 +577,33 @@ function renderWheels() {
         <div class="wheel-value ${v == null ? "empty" : ""}">${v == null ? "---" : fmtP(v)}</div>
       </div>`;
   }).join("");
+}
+
+// ★第7.7版: AUTOの時は閾値(20kPa)以下の確定値を受け付けない(MANUALは0でも受け付ける=テスト送信)
+const AUTO_MIN_CONFIRMED_KPA = 20;
+
+function onConfirmedText(text) {
+  const t = String(text || "").trim();
+  const isUpdate = t.startsWith("U:");
+  const kpa = parseFloat(isUpdate ? t.slice(2) : t);
+  if (Number.isNaN(kpa)) return;   // 空(送信機第6.6版の初期値)など
+  if (lastKnownModeChar === "A" && kpa <= AUTO_MIN_CONFIRMED_KPA) {
+    console.log("[TPU-MINI] low value ignored in AUTO:", t);
+    return;
+  }
+  if (isUpdate) onUpdatedValue(kpa);
+  else onConfirmedValue(kpa);
+}
+
+// ★第7.7版: 外した時の最大値で、直前に確定した輪を上書きする(時刻は確定した時のまま)
+function onUpdatedValue(kpa) {
+  const order = currentWheelOrder();
+  if (currentOrderIdx <= 0) return;           // まだ1輪も確定していない(リセット直後など)→無視
+  const wheel = order[currentOrderIdx - 1];
+  if (wheelValues[wheel] == null) return;
+  console.log(`[TPU-MINI] ${wheel} updated ${wheelValues[wheel]} -> ${kpa}`);
+  wheelValues[wheel] = kpa;
+  renderWheels();
 }
 
 function onConfirmedValue(kpa) {
@@ -670,16 +770,22 @@ const CAL_MESSAGES = {
   "READY":       ["待機中", ""],
   "RUN:ZERO":    ["ゼロ点を測定中…", "run"],
   "RUN:GAIN":    ["倍率を測定中…", "run"],
+  "RUN:P1":      ["100の点を測定中…", "run"],
+  "RUN:P2":      ["200の点を測定中…", "run"],
+  "OK:P1":       ["100の点を保存しました。チャックを外してください", "ok"],
+  "OK:P2":       ["200の点を保存しました。チャックを外してください", "ok"],
+  "ERR:NOP1":    ["先に100の点を合わせてください", "err"],
+  "ERR:DIFF":    ["200の点は、空気を入れて圧を上げてから押してください(100の点より50kPa以上高く)", "err"],
   "OK:ZERO":     ["ゼロ点を保存しました", "ok"],
   "OK:GAIN":     ["倍率を保存しました。チャックを外してください", "ok"],
   "OK:RESET":    ["初期値に戻しました", "ok"],
   "BUSY":        ["測定中または校正中のため受け付けられませんでした。少し待ってからやり直してください", "err"],
-  "ERR:CMD":     ["送信機がコマンドを理解できませんでした", "err"],
+  "ERR:CMD":     ["送信機がコマンドを理解できませんでした(100/200の点の校正は送信機第6.6版以降が必要です)", "err"],
   "ERR:MASTER":  ["基準値が範囲外です(50〜551kPa / 0.50〜5.51bar / 7.3〜80.0psi)", "err"],
   "ERR:TIMEOUT": ["測定値が十分に集まりませんでした。ADCの接続を確認してください", "err"],
   "ERR:ZERO":    ["圧力がかかっています。チャックを外し、大気開放でやり直してください", "err"],
-  "ERR:DENOM":   ["圧力が低すぎます。タイヤにつないだ状態でやり直してください", "err"],
   "ERR:GAIN":    ["補正量が大きすぎます(±20%超)。基準値とつなぎ方を確認してください", "err"],
+  "ERR:DENOM":   ["圧力が低すぎます。タイヤにつないだ状態でやり直してください(200の点は100の点より圧を上げてください)", "err"],
   "ERR:SAVE":    ["本体への保存に失敗しました", "err"],
   "OK:OFF":      ["本体の電源を切りました", "ok"],
   "ERR:CHARGER": ["充電台に置いている間は電源を切れません", "err"],
@@ -688,7 +794,8 @@ const CAL_MESSAGES = {
 function updateCalButtons() {
   const ok = !!calCmdChar && bleDevice && bleDevice.gatt.connected && !calRunning;
   el("calZeroBtn").disabled = !ok;
-  el("calGainBtn").disabled = !ok;
+  el("calP1Btn").disabled = !ok;   // ★第7.7版
+  el("calP2Btn").disabled = !ok || lastCalP1 == null;
   el("calResetBtn").disabled = !ok;
   el("powerOffBtn").disabled = !ok;
 }
@@ -700,11 +807,21 @@ function showCalResult(text, cls) {
 }
 
 let lastCalZ = null, lastCalG = null;   // ★第7.4版: 単位切り替えで描き直すため
+let lastCalP1 = null, lastCalP2 = null; // ★第7.7版: 100/200の点のマスター値(kPa)。無ければnull
 function renderCalCurrent() {
-  const unit = UNITS[displayUnit].label;
-  el("calCurrent").textContent = (lastCalZ == null)
-    ? `ゼロ点 -- ${unit} / 倍率 --`
-    : `ゼロ点 ${UNITS[displayUnit].from(lastCalZ).toFixed(UNITS[displayUnit].digits + 1)} ${unit} / 倍率 ${lastCalG.toFixed(4)}`;
+  const u = UNITS[displayUnit];
+  const unit = u.label;
+  if (lastCalZ == null) {
+    el("calCurrent").textContent = `ゼロ点 -- ${unit} / 100の点 -- / 200の点 --`;
+    return;
+  }
+  const zTxt = `ゼロ点 ${u.from(lastCalZ).toFixed(u.digits + 1)} ${unit}`;
+  const pTxt = (v) => (v == null) ? "未" : `${fmtP(v)} ${unit}`;
+  let txt = `${zTxt} / 100の点 ${pTxt(lastCalP1)} / 200の点 ${pTxt(lastCalP2)}`;
+  if (lastCalP1 == null && lastCalG != null && Math.abs(lastCalG - 1) > 0.00005) {
+    txt += ` / 倍率 ${lastCalG.toFixed(4)}`;   // 1点の倍率合わせ(旧方式)の値が入っている時
+  }
+  el("calCurrent").textContent = txt;
 }
 function calRangeText() {
   const u = UNITS[displayUnit];
@@ -716,13 +833,17 @@ function onCalStatus(text) {
   const parts = text.split(";");
   const result = parts[0];
   if (result === "REQ:SEND") { onDeviceSendRequest(); return; }   // ★第7版: 校正の表示には出さない
-  let z = null, g = null;
+  let z = null, g = null, p1 = null, p2 = null;
   parts.slice(1).forEach(p => {
     if (p.startsWith("Z=")) z = parseFloat(p.slice(2));
     if (p.startsWith("G=")) g = parseFloat(p.slice(2));
+    if (p.startsWith("P1=")) p1 = parseFloat(p.slice(3));   // ★第7.7版
+    if (p.startsWith("P2=")) p2 = parseFloat(p.slice(3));
   });
   if (z != null && g != null && !Number.isNaN(z) && !Number.isNaN(g)) {
     lastCalZ = z; lastCalG = g;
+    lastCalP1 = (p1 == null || Number.isNaN(p1)) ? null : p1;   // 付いていなければ「未」
+    lastCalP2 = (p2 == null || Number.isNaN(p2)) ? null : p2;
     renderCalCurrent();
   }
   const m = CAL_MESSAGES[result] || [result, ""];
@@ -749,6 +870,7 @@ function resetCalUi() {
   calCmdChar = null;
   calRunning = false;
   lastCalZ = null; lastCalG = null;
+  lastCalP1 = null; lastCalP2 = null;
   renderCalCurrent();
   showCalResult("未接続", "");
   updateCalButtons();
@@ -758,30 +880,41 @@ el("calZeroBtn").addEventListener("click", () => {
   if (!confirm("チャックを何にもつながず、大気開放の状態ですか？\nこの状態を0kPaとして保存します。")) return;
   sendCalCommand("ZERO");
 });
-el("calGainBtn").addEventListener("click", () => {
+// ★第7.7版: 100の点 / 200の点。選んでいる単位で入れてもらい、kPaに直して送る
+function onCalPointClick(point) {
   if (lastKnownModeChar === "A") {
     alert("本体がAUTOモードです。\nタイヤにつないだ瞬間に確定値が送られてしまうため、MANUALに切り替えてから行ってください。");
     return;
   }
-  // ★第7.4版: 選んでいる単位で入れてもらい、kPaに直して送る
   const u = UNITS[displayUnit];
-  const vIn = parseFloat(el("calMaster").value);
+  const inputId = (point === 1) ? "calMaster1" : "calMaster2";
+  const vIn = parseFloat(el(inputId).value);
   const kpa = Number.isNaN(vIn) ? NaN : Math.round(u.to(vIn) * 10) / 10;
   if (Number.isNaN(kpa) || kpa < CAL_MASTER_MIN - 0.05 || kpa > CAL_MASTER_MAX + 0.05) {
     alert(`基準値を${calRangeText()}の範囲で入力してください。`);
     return;
   }
   const kpaClamped = Math.min(Math.max(kpa, CAL_MASTER_MIN), CAL_MASTER_MAX);
+  if (point === 2) {
+    if (lastCalP1 == null) { alert("先に100の点を合わせてください。"); return; }
+    if (kpaClamped - lastCalP1 < 50) {
+      alert("200の点は、空気を入れて圧を上げてから押してください。\n(100の点より50kPa以上高い基準値が必要です)");
+      return;
+    }
+  }
+  const name = (point === 1) ? "100の点" : "200の点";
   const shown = (displayUnit === "kPa") ? `${kpaClamped.toFixed(1)} kPa` : `${vIn} ${u.label}(= ${kpaClamped.toFixed(1)} kPa)`;
-  if (!confirm(`タイヤにつないだ状態ですか？\n本機の値が基準値 ${shown} に合うように倍率を保存します。`)) return;
-  sendCalCommand("GAIN:" + kpaClamped.toFixed(1));
-});
+  if (!confirm(`タイヤにつないだ状態ですか？\n本機の値が基準値 ${shown} になるように${name}を保存します。`)) return;
+  sendCalCommand(`CAL${point}:` + kpaClamped.toFixed(1));
+}
+el("calP1Btn").addEventListener("click", () => onCalPointClick(1));
+el("calP2Btn").addEventListener("click", () => onCalPointClick(2));
 el("powerOffBtn").addEventListener("click", () => {
   if (!confirm("本体の電源を切りますか？\n次に使う時は、USB-C(充電台)につなぐと起動します。")) return;
   sendCalCommand("OFF");
 });
 el("calResetBtn").addEventListener("click", () => {
-  if (!confirm("校正値を初期値(ゼロ点0・倍率1)に戻しますか？")) return;
+  if (!confirm("校正値を初期値(ゼロ点0・100/200の点なし)に戻しますか？")) return;
   sendCalCommand("RESET");
 });
 
@@ -862,8 +995,7 @@ async function connectGatt() {
       console.log("[TPU-MINI] confirmed value ignored (just connected):", textDecoder.decode(e.target.value));
       return;
     }
-    const kpa = parseFloat(textDecoder.decode(e.target.value));
-    if (!Number.isNaN(kpa)) onConfirmedValue(kpa);
+    onConfirmedText(textDecoder.decode(e.target.value));   // ★第7.7版: "U:" の上書きと、AUTOの低い値の除外
   });
   await confirmedChar.startNotifications();
 
@@ -1059,7 +1191,69 @@ el("resetBtn").addEventListener("click", resetSession);
 el("unpairBtn").addEventListener("click", onUnpairClick);   // ★第7.3版
 renderPairInfo();
 el("sendBtn").addEventListener("click", sendToGas);
-el("wheelOrder").addEventListener("change", () => { saveSettings(); resetSession(); });
+// ★第7.7版: 自分の順番
+let orderBeforeChange = el("wheelOrder").value;   // 作る画面をやめた時に戻す先
+let orderPicking = [];
+
+function updateCustomOrderUi() {
+  el("customOrderOpt").textContent = isValidOrder(customOrder)
+    ? `自分の順番 (${customOrder.join("-")})` : "自分の順番 (未作成)";
+  el("editOrderBtn").style.display = (parseInt(el("wheelOrder").value, 10) === CUSTOM_ORDER_IDX) ? "" : "none";
+}
+function renderOrderPicker() {
+  document.querySelectorAll("#orderGrid button").forEach(b => {
+    const i = orderPicking.indexOf(b.dataset.w);
+    b.classList.toggle("picked", i >= 0);
+    b.querySelector(".num").textContent = (i >= 0) ? String(i + 1) : "";
+  });
+  el("orderSeq").textContent = orderPicking.length ? orderPicking.join(" → ") : "まだ選んでいません";
+  el("orderSaveBtn").disabled = orderPicking.length !== 4;
+}
+function openOrderEditor() {
+  orderPicking = [];
+  renderOrderPicker();
+  el("orderModal").classList.add("open");
+}
+function closeOrderEditor() {
+  el("orderModal").classList.remove("open");
+}
+document.querySelectorAll("#orderGrid button").forEach(b => b.addEventListener("click", () => {
+  if (orderPicking.includes(b.dataset.w) || orderPicking.length >= 4) return;   // 同じ輪は1回だけ
+  orderPicking.push(b.dataset.w);
+  renderOrderPicker();
+}));
+el("orderRedoBtn").addEventListener("click", () => { orderPicking = []; renderOrderPicker(); });
+el("orderCancelBtn").addEventListener("click", () => {
+  closeOrderEditor();
+  if (!isValidOrder(customOrder) && parseInt(el("wheelOrder").value, 10) === CUSTOM_ORDER_IDX) {
+    el("wheelOrder").value = orderBeforeChange;   // まだ作っていないのに選んだ → 元の順番に戻す
+  }
+  updateCustomOrderUi();
+});
+el("orderSaveBtn").addEventListener("click", () => {
+  if (!isValidOrder(orderPicking)) return;
+  const changed = !isValidOrder(customOrder) || customOrder.join() !== orderPicking.join();
+  customOrder = orderPicking.slice();
+  closeOrderEditor();
+  const wasCustom = (orderBeforeChange === String(CUSTOM_ORDER_IDX));
+  el("wheelOrder").value = String(CUSTOM_ORDER_IDX);
+  orderBeforeChange = el("wheelOrder").value;
+  updateCustomOrderUi();
+  saveSettings();
+  if (changed || !wasCustom) resetSession();   // 順番が変わったら、今までどおりリセット
+});
+el("editOrderBtn").addEventListener("click", openOrderEditor);
+
+el("wheelOrder").addEventListener("change", () => {
+  updateCustomOrderUi();
+  if (parseInt(el("wheelOrder").value, 10) === CUSTOM_ORDER_IDX && !isValidOrder(customOrder)) {
+    openOrderEditor();          // まだ作っていない → 作る画面を開く(保存した時に切り替える)
+    return;
+  }
+  orderBeforeChange = el("wheelOrder").value;
+  saveSettings();
+  resetSession();
+});
 
 // ★第7.4版: 表示単位と、覚えている車番・測定順
 function setUnit(unit) {
@@ -1068,11 +1262,17 @@ function setUnit(unit) {
   const u = UNITS[unit];
   document.querySelectorAll("#unitSel button").forEach(b => b.classList.toggle("on", b.dataset.unit === unit));
   el("liveUnit").textContent = u.label;
-  el("calMasterUnit").textContent = u.label;
-  el("calMaster").step = u.step;
-  el("calMaster").min = u.from(CAL_MASTER_MIN).toFixed(u.digits);
-  el("calMaster").max = u.from(CAL_MASTER_MAX).toFixed(u.digits);
-  el("calMaster").value = "";   // 単位が変わると数字の意味が変わるので、入れかけの基準値は消す
+  document.querySelectorAll(".calMasterUnit").forEach(e => e.textContent = u.label);
+  ["calMaster1", "calMaster2"].forEach(id => {   // ★第7.7版: 100の点・200の点
+    el(id).step = u.step;
+    el(id).min = u.from(CAL_MASTER_MIN).toFixed(u.digits);
+    el(id).max = u.from(CAL_MASTER_MAX).toFixed(u.digits);
+    el(id).value = "";   // 単位が変わると数字の意味が変わるので、入れかけの基準値は消す
+  });
+  document.querySelectorAll(".calApprox").forEach(e => {   // 「約100kPa」を選んでいる単位で
+    const d = (unit === "kPa") ? 0 : u.digits;   // kPaは「約100kPa」と整数で
+    e.textContent = "約" + u.from(parseFloat(e.dataset.kpa)).toFixed(d) + u.label;
+  });
   if (lastLiveKpa != null) el("liveValue").textContent = fmtP(lastLiveKpa);
   renderWheels();
   renderCalCurrent();
@@ -1090,7 +1290,11 @@ el("tireSet").addEventListener("change", saveSettings);
   const st = loadSettings();
   if (st.carNo != null && st.carNo !== "") el("carNo").value = st.carNo;
   if (typeof st.tireSet === "string") el("tireSet").value = st.tireSet;   // ★第7.5版
-  if (st.wheelOrder != null && WHEEL_ORDER_TABLE[parseInt(st.wheelOrder, 10)]) el("wheelOrder").value = String(st.wheelOrder);
+  if (isValidOrder(st.customOrder)) customOrder = st.customOrder.slice();   // ★第7.7版
+  const wo = parseInt(st.wheelOrder, 10);
+  if (WHEEL_ORDER_TABLE[wo] || (wo === CUSTOM_ORDER_IDX && isValidOrder(customOrder))) el("wheelOrder").value = String(wo);
+  orderBeforeChange = el("wheelOrder").value;
+  updateCustomOrderUi();
   displayUnit = UNITS[st.unit] ? st.unit : "kPa";
 })();
 
